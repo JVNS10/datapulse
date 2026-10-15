@@ -1,44 +1,126 @@
-resolve_db_path <- function(path = NULL) {
-  if (!is.null(path) && nzchar(path)) {
-    return(path)
+if (!requireNamespace("DBI", quietly = TRUE)) {
+  stop("DBI é obrigatório para a persistência do DataPulse.")
+}
+if (!requireNamespace("RSQLite", quietly = TRUE)) {
+  stop("RSQLite é obrigatório para a persistência do DataPulse.")
+}
+
+resolve_project_root <- function() {
+  candidates <- c(
+    getwd(),
+    normalizePath(getwd()),
+    if (!is.null(sys.frames()[[1]]$ofile)) dirname(normalizePath(sys.frames()[[1]]$ofile)) else getwd(),
+    dirname(getwd()),
+    dirname(dirname(getwd())),
+    dirname(dirname(dirname(getwd())))
+  )
+
+  for (candidate in unique(candidates)) {
+    if (dir.exists(file.path(candidate, "app"))) {
+      return(candidate)
+    }
+  }
+
+  fallback <- "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence"
+  if (dir.exists(file.path(fallback, "app"))) {
+    return(fallback)
+  }
+
+  stop("Não foi possível localizar a raiz do projeto DataPulse.")
+}
+
+resolve_db_path <- function(db_path = NULL) {
+  if (!is.null(db_path) && nzchar(as.character(db_path))) {
+    resolved <- as.character(db_path)
+    dir.create(dirname(resolved), recursive = TRUE, showWarnings = FALSE)
+    return(normalizePath(resolved, winslash = "/", mustWork = FALSE))
   }
 
   env_path <- Sys.getenv("DATAPULSE_DB_PATH", unset = "")
   if (nzchar(env_path)) {
-    return(env_path)
+    dir.create(dirname(env_path), recursive = TRUE, showWarnings = FALSE)
+    return(normalizePath(env_path, winslash = "/", mustWork = FALSE))
   }
 
-  root <- if (dir.exists(file.path(getwd(), "app"))) getwd() else {
-    candidate <- "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence"
-    if (dir.exists(file.path(candidate, "app"))) candidate else stop("Não foi possível localizar a raiz do projeto DataPulse.")
-  }
-
-  db_dir <- file.path(root, "app", "data", "sqlite")
-  dir.create(db_dir, recursive = TRUE, showWarnings = FALSE)
-  file.path(db_dir, "datapulse.db")
-}
-
-get_repo_root <- function() {
-  if (dir.exists(file.path(getwd(), "app"))) {
-    return(getwd())
-  }
-
-  candidate <- "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence"
-  if (dir.exists(file.path(candidate, "app"))) {
-    return(candidate)
-  }
-
-  stop("Não foi possível localizar a raiz do projeto DataPulse.")
+  root_dir <- resolve_project_root()
+  db_file <- file.path(root_dir, "app", "data", "sqlite", "datapulse.db")
+  dir.create(dirname(db_file), recursive = TRUE, showWarnings = FALSE)
+  normalizePath(db_file, winslash = "/", mustWork = FALSE)
 }
 
 get_default_db_path <- function() {
   resolve_db_path()
 }
 
-initialize_database <- function(db_path = get_default_db_path()) {
-  dir.create(dirname(db_path), recursive = TRUE, showWarnings = FALSE)
+get_database_connection <- function(db_path = NULL) {
+  resolved_path <- resolve_db_path(db_path)
+  DBI::dbConnect(RSQLite::SQLite(), dbname = resolved_path)
+}
 
-  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+normalize_transaction_input <- function(transaction, current = NULL, allow_partial = FALSE) {
+  if (is.null(transaction) || (!is.list(transaction) && !is.data.frame(transaction))) {
+    stop("Transação inválida: era esperado um objeto com data, descrição, categoria, tipo e valor.")
+  }
+
+  if (is.data.frame(transaction)) {
+    if (nrow(transaction) != 1L) {
+      stop("A transação em lote deve conter exatamente uma linha.")
+    }
+    transaction <- as.list(transaction[1, , drop = FALSE])
+  }
+
+  required_fields <- c("date", "description", "category", "type", "amount")
+  if (allow_partial && !is.null(current)) {
+    for (field_name in required_fields) {
+      if (is.null(transaction[[field_name]]) && !is.null(current[[field_name]])) {
+        transaction[[field_name]] <- current[[field_name]]
+      }
+    }
+  }
+
+  missing_fields <- setdiff(required_fields, names(transaction))
+  if (length(missing_fields) > 0L) {
+    stop(sprintf("Transação incompleta. Faltam os campos: %s", paste(missing_fields, collapse = ", ")))
+  }
+
+  date_value <- trimws(as.character(transaction$date))
+  description_value <- trimws(as.character(transaction$description))
+  category_value <- trimws(as.character(transaction$category))
+  type_value <- tolower(trimws(as.character(transaction$type)))
+  amount_value <- suppressWarnings(as.numeric(transaction$amount))
+
+  if (is.na(as.Date(date_value, format = "%Y-%m-%d"))) {
+    stop("Data inválida. Use o formato YYYY-MM-DD.")
+  }
+
+  if (!nzchar(description_value)) {
+    stop("Descrição é obrigatória.")
+  }
+
+  if (!nzchar(category_value)) {
+    stop("Categoria é obrigatória.")
+  }
+
+  if (!(type_value %in% c("income", "expense"))) {
+    stop("Tipo inválido. Use 'income' ou 'expense'.")
+  }
+
+  if (is.na(amount_value) || !is.finite(amount_value) || amount_value <= 0) {
+    stop("Valor inválido. O valor deve ser maior que zero.")
+  }
+
+  list(
+    date = format(as.Date(date_value, format = "%Y-%m-%d"), "%Y-%m-%d"),
+    description = description_value,
+    category = category_value,
+    type = type_value,
+    amount = amount_value
+  )
+}
+
+init_database <- function(db_path = get_default_db_path()) {
+  resolved_path <- resolve_db_path(db_path)
+  con <- get_database_connection(resolved_path)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   DBI::dbExecute(
@@ -57,13 +139,14 @@ initialize_database <- function(db_path = get_default_db_path()) {
   DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)")
   DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
 
-  invisible(db_path)
+  invisible(resolved_path)
 }
 
-fetch_transactions <- function(db_path = get_default_db_path()) {
-  initialize_database(db_path)
+initialize_database <- init_database
 
-  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+list_transactions <- function(db_path = get_default_db_path()) {
+  init_database(db_path)
+  con <- get_database_connection(db_path)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   result <- DBI::dbGetQuery(
@@ -88,18 +171,161 @@ fetch_transactions <- function(db_path = get_default_db_path()) {
   result
 }
 
+fetch_transactions <- list_transactions
+
+get_transaction_by_id <- function(db_path = get_default_db_path(), transaction_id) {
+  init_database(db_path)
+  con <- get_database_connection(db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  result <- DBI::dbGetQuery(
+    con,
+    "SELECT id, date, description, category, type, amount, created_at FROM transactions WHERE id = ?",
+    params = list(as.integer(transaction_id))
+  )
+
+  if (nrow(result) == 0L) {
+    return(NULL)
+  }
+
+  result$amount <- as.numeric(result$amount)
+  result[1, , drop = FALSE]
+}
+
+list_transactions_filtered <- function(db_path = get_default_db_path(), start_date = NULL, end_date = NULL, category = NULL, type = NULL) {
+  init_database(db_path)
+  con <- get_database_connection(db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  query <- "SELECT id, date, description, category, type, amount, created_at FROM transactions WHERE 1 = 1"
+  params <- list()
+
+  if (!is.null(start_date) && nzchar(as.character(start_date))) {
+    query <- paste(query, " AND date >= ?")
+    params[[length(params) + 1L]] <- as.character(start_date)
+  }
+
+  if (!is.null(end_date) && nzchar(as.character(end_date))) {
+    query <- paste(query, " AND date <= ?")
+    params[[length(params) + 1L]] <- as.character(end_date)
+  }
+
+  if (!is.null(category) && nzchar(as.character(category))) {
+    query <- paste(query, " AND category = ?")
+    params[[length(params) + 1L]] <- as.character(category)
+  }
+
+  if (!is.null(type) && nzchar(as.character(type))) {
+    query <- paste(query, " AND type = ?")
+    params[[length(params) + 1L]] <- tolower(as.character(type))
+  }
+
+  query <- paste(query, " ORDER BY date ASC, id ASC")
+  result <- if (length(params) == 0L) DBI::dbGetQuery(con, query) else DBI::dbGetQuery(con, query, params = params)
+
+  if (nrow(result) == 0L) {
+    return(data.frame(
+      id = integer(0),
+      date = character(0),
+      description = character(0),
+      category = character(0),
+      type = character(0),
+      amount = numeric(0),
+      created_at = character(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  result$amount <- as.numeric(result$amount)
+  result
+}
+
+insert_transaction <- function(db_path = get_default_db_path(), transaction) {
+  init_database(db_path)
+  payload <- normalize_transaction_input(transaction)
+  con <- get_database_connection(db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  DBI::dbExecute(
+    con,
+    "INSERT INTO transactions (date, description, category, type, amount) VALUES (?, ?, ?, ?, ?)",
+    params = list(
+      payload$date,
+      payload$description,
+      payload$category,
+      payload$type,
+      as.numeric(payload$amount)
+    )
+  )
+
+  inserted_id <- as.integer(DBI::dbGetQuery(con, "SELECT last_insert_rowid() AS id")$id)
+  get_transaction_by_id(db_path, inserted_id)
+}
+
+update_transaction <- function(db_path = get_default_db_path(), transaction_id, transaction) {
+  init_database(db_path)
+  current <- get_transaction_by_id(db_path, transaction_id)
+  if (is.null(current)) {
+    stop("Transação não encontrada.")
+  }
+
+  payload <- normalize_transaction_input(transaction, current = current, allow_partial = TRUE)
+  con <- get_database_connection(db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  DBI::dbExecute(
+    con,
+    "UPDATE transactions SET date = ?, description = ?, category = ?, type = ?, amount = ? WHERE id = ?",
+    params = list(
+      payload$date,
+      payload$description,
+      payload$category,
+      payload$type,
+      as.numeric(payload$amount),
+      as.integer(transaction_id)
+    )
+  )
+
+  get_transaction_by_id(db_path, transaction_id)
+}
+
+delete_transaction <- function(db_path = get_default_db_path(), transaction_id) {
+  init_database(db_path)
+  con <- get_database_connection(db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  affected <- DBI::dbExecute(con, "DELETE FROM transactions WHERE id = ?", params = list(as.integer(transaction_id)))
+  isTRUE(affected > 0L)
+}
+
+transaction_to_api_payload <- function(row) {
+  if (is.null(row) || nrow(row) == 0L) {
+    return(NULL)
+  }
+
+  payload <- row[1, , drop = FALSE]
+  list(
+    id = as.integer(payload$id),
+    date = as.character(payload$date),
+    description = as.character(payload$description),
+    category = as.character(payload$category),
+    type = as.character(payload$type),
+    amount = as.numeric(payload$amount),
+    created_at = as.character(payload$created_at),
+    updated_at = as.character(payload$created_at)
+  )
+}
+
 fetch_transaction_fingerprints <- function(db_path = get_default_db_path()) {
   tx <- fetch_transactions(db_path)
   if (nrow(tx) == 0L) {
     return(character(0))
   }
 
-  lower_desc <- tolower(trimws(tx$description))
-  lower_category <- tolower(trimws(tx$category))
   paste(
     as.character(tx$date),
-    lower_desc,
-    lower_category,
+    tolower(trimws(tx$description)),
+    tolower(trimws(tx$category)),
     tolower(trimws(tx$type)),
     sprintf("%.2f", as.numeric(tx$amount)),
     sep = "::"
@@ -112,7 +338,7 @@ insert_transaction_rows <- function(rows, db_path = get_default_db_path()) {
   }
 
   initialize_database(db_path)
-  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+  con <- get_database_connection(db_path)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   DBI::dbBegin(con)
@@ -122,7 +348,7 @@ insert_transaction_rows <- function(rows, db_path = get_default_db_path()) {
       DBI::dbExecute(
         con,
         "INSERT INTO transactions (date, description, category, type, amount) VALUES (?, ?, ?, ?, ?)",
-        params = c(
+        params = list(
           as.character(row$date),
           as.character(row$description),
           as.character(row$category),
@@ -165,7 +391,6 @@ get_dashboard_summary <- function(db_path = get_default_db_path()) {
   expense_summary <- stats::aggregate(amount ~ category, data = subset(tx, type == "expense"), FUN = sum)
   if (nrow(expense_summary) > 0L) {
     expense_summary <- expense_summary[order(expense_summary$amount, decreasing = TRUE), ]
-    names(expense_summary$amount) <- expense_summary$category
   }
 
   monthly_summary <- stats::aggregate(
@@ -173,9 +398,8 @@ get_dashboard_summary <- function(db_path = get_default_db_path()) {
     data = tx,
     FUN = sum
   )
-  row_names <- paste(monthly_summary[, 1], monthly_summary[, 2], sep = "::")
-  month_map <- split(monthly_summary, row_names)
-  summary_list <- lapply(month_map, function(item) {
+
+  summary_list <- lapply(split(monthly_summary, paste(monthly_summary[, 1], monthly_summary[, 2], sep = "::")), function(item) {
     list(
       month = item[[1]],
       type = item[[2]],

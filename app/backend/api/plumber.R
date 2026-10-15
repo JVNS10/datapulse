@@ -56,6 +56,68 @@ extract_form_value <- function(value) {
   NULL
 }
 
+normalize_transaction_rows <- function(body) {
+  if (is.null(body)) {
+    stop("Payload inválido: corpo da requisição ausente.")
+  }
+
+  if (is.data.frame(body)) {
+    return(body)
+  }
+
+  if (is.list(body) && !is.null(body[['transactions']])) {
+    return(normalize_transaction_rows(body[['transactions']]))
+  }
+
+  if (is.list(body) && length(body) == 0L) {
+    return(data.frame(
+      date = character(0),
+      description = character(0),
+      category = character(0),
+      type = character(0),
+      amount = numeric(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (is.list(body) && !is.null(names(body)) && all(c("date", "description", "category", "type", "amount") %in% names(body))) {
+    return(as.data.frame(body, stringsAsFactors = FALSE))
+  }
+
+  if (is.list(body)) {
+    row_list <- lapply(body, function(item) {
+      if (is.data.frame(item) && nrow(item) > 0L) {
+        return(item[1L, , drop = FALSE])
+      }
+
+      if (is.list(item) && !is.null(item[['date']])) {
+        return(as.list(item))
+      }
+
+      if (is.atomic(item) && length(item) > 0L && !is.null(names(item)) && all(c("date", "description", "category", "type", "amount") %in% names(item))) {
+        return(as.list(item))
+      }
+
+      stop("Payload inválido: cada transação deve conter date, description, category, type e amount.")
+    })
+
+    normalized_rows <- lapply(row_list, function(item) {
+      data.frame(
+        date = as.character(item[['date']]),
+        description = as.character(item[['description']]),
+        category = as.character(item[['category']]),
+        type = as.character(item[['type']]),
+        amount = suppressWarnings(as.numeric(item[['amount']])),
+        stringsAsFactors = FALSE
+      )
+    })
+
+    return(as.data.frame(do.call(rbind, normalized_rows), stringsAsFactors = FALSE))
+  }
+
+  stop("Payload inválido: estrutura inesperada de transações.")
+}
+
 build_api_response <- function(status, data, errors = list(), meta = list()) {
   response <- list(
     status = status,
@@ -131,7 +193,7 @@ extract_upload_path <- function(file_value, req = NULL) {
 #* @filter cors
 function(req, res) {
   res$setHeader("Access-Control-Allow-Origin", "*")
-  res$setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+  res$setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
   res$setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
   if (req$REQUEST_METHOD == "OPTIONS") {
@@ -172,11 +234,150 @@ function() {
 }
 
 #* @serializer unboxedJSON
+#* @get /api/transactions/<transaction_id>
+function(req, res, transaction_id) {
+  row <- get_transaction_by_id(get_default_db_path(), transaction_id)
+  if (is.null(row)) {
+    res$status <- 404
+    return(build_api_response("error", NULL, errors = list(list(code = "NOT_FOUND", message = "Transação não encontrada."))))
+  }
+
+  build_api_response("success", transaction_to_api_payload(row))
+}
+
+#* @serializer unboxedJSON
+#* @post /api/transactions
+function(req, res) {
+  body <- req$body
+  if (is.null(body) || (!is.list(body) && !is.data.frame(body))) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = "Payload inválido."))))
+  }
+
+  tryCatch({
+    payload <- normalize_transaction_input(body)
+    inserted <- insert_transaction(get_default_db_path(), payload)
+    build_api_response("success", transaction_to_api_payload(inserted))
+  }, error = function(e) {
+    res$status <- 400
+    build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = e$message)))
+  })
+}
+
+#* @serializer unboxedJSON
+#* @put /api/transactions/<transaction_id>
+function(req, res, transaction_id) {
+  body <- req$body
+  if (is.null(body) || (!is.list(body) && !is.data.frame(body))) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = "Payload inválido."))))
+  }
+
+  tryCatch({
+    updated <- update_transaction(get_default_db_path(), transaction_id, body)
+    build_api_response("success", transaction_to_api_payload(updated))
+  }, error = function(e) {
+    res$status <- 400
+    build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = e$message)))
+  })
+}
+
+#* @serializer unboxedJSON
+#* @delete /api/transactions/<transaction_id>
+function(req, res, transaction_id) {
+  deleted <- delete_transaction(get_default_db_path(), transaction_id)
+  if (!isTRUE(deleted)) {
+    res$status <- 404
+    return(build_api_response("error", NULL, errors = list(list(code = "NOT_FOUND", message = "Transação não encontrada."))))
+  }
+
+  build_api_response("success", list(id = as.integer(transaction_id), deleted = TRUE))
+}
+
+#* @serializer unboxedJSON
+#* @post /api/analyze
+function(req, res) {
+  body <- req$body
+  if (is.null(body) || (!is.list(body) && !is.data.frame(body))) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = "Payload inválido: esperado uma lista de transações."))))
+  }
+
+  if (is.list(body) && length(body) == 0L) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = "Payload inválido: esperado uma lista de transações."))))
+  }
+
+  if (is.list(body) && !is.null(body[['transactions']]) && is.list(body[['transactions']]) && length(body[['transactions']]) == 0L && !is.null(body[['filters']])) {
+    filters <- body[['filters']]
+    rows <- list_transactions_filtered(
+      get_default_db_path(),
+      start_date = if (!is.null(filters[['start_date']])) filters[['start_date']] else NULL,
+      end_date = if (!is.null(filters[['end_date']])) filters[['end_date']] else NULL,
+      category = if (!is.null(filters[['category']])) filters[['category']] else NULL,
+      type = if (!is.null(filters[['type']])) filters[['type']] else NULL
+    )
+  } else {
+    rows <- normalize_transaction_rows(body)
+  }
+
+  if (nrow(rows) == 0L) {
+    result <- list(
+      totals = list(total_income = 0, total_expense = 0, net_balance = 0),
+      expenses_by_category = list(),
+      monthly_summary = list(),
+      transaction_count = 0L
+    )
+    return(build_api_response("success", result))
+  }
+
+  if (!is.null(body$filters)) {
+    filters <- body$filters
+    if (!is.null(filters$start_date) && nzchar(filters$start_date)) {
+      rows <- rows[rows$date >= as.character(filters$start_date), , drop = FALSE]
+    }
+    if (!is.null(filters$end_date) && nzchar(filters$end_date)) {
+      rows <- rows[rows$date <= as.character(filters$end_date), , drop = FALSE]
+    }
+    if (!is.null(filters$category) && nzchar(filters$category)) {
+      rows <- rows[rows$category == as.character(filters$category), , drop = FALSE]
+    }
+    if (!is.null(filters$type) && nzchar(filters$type)) {
+      rows <- rows[tolower(rows$type) == tolower(as.character(filters$type)), , drop = FALSE]
+    }
+  }
+
+  tryCatch({
+    summary <- build_financial_summary(rows)
+    expenses_by_category <- summary$expenses_by_category
+    if (is.null(expenses_by_category) || length(expenses_by_category) == 0L) {
+      expenses_by_category <- list()
+    } else if (is.numeric(expenses_by_category) && !is.list(expenses_by_category)) {
+      expenses_by_category <- as.list(expenses_by_category)
+    }
+
+    payload <- list(
+      total_income = summary$totals$total_income,
+      total_expense = summary$totals$total_expense,
+      net_balance = summary$totals$net_balance,
+      transaction_count = nrow(rows),
+      expenses_by_category = expenses_by_category,
+      monthly_summary = summary$monthly_summary
+    )
+    build_api_response("success", payload)
+  }, error = function(e) {
+    res$status <- 400
+    build_api_response("error", NULL, errors = list(list(code = "INVALID_PAYLOAD", message = e$message)))
+  })
+}
+
+#* @serializer unboxedJSON
 #* @post /api/import/csv
-function(req, file = NULL, dry_run = TRUE, include_duplicates = FALSE) {
+function(req, res, file = NULL, dry_run = TRUE, include_duplicates = FALSE) {
   upload_path <- extract_upload_path(file, req)
   if (is.null(upload_path)) {
-    stop("Arquivo CSV não foi enviado no campo 'file'.")
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(code = "CSV_IMPORT_ERROR", message = "Arquivo CSV não foi enviado no campo 'file'."))))
   }
 
   dry_run_value <- if (!is.null(req) && !is.null(req$body)) {
@@ -196,11 +397,29 @@ function(req, file = NULL, dry_run = TRUE, include_duplicates = FALSE) {
   result <- tryCatch({
     import_csv_file(upload_path, dry_run = dry_run_flag, include_duplicates = duplicate_flag, db_path = get_default_db_path())
   }, error = function(e) {
+    res$status <- 400
     build_api_response("error", NULL, errors = list(list(code = "CSV_IMPORT_ERROR", message = e$message)))
   })
 
-  if (is.list(result) && !is.null(result$status) && result$status == "error") {
+  if (is.list(result) && !is.null(result$status) && identical(result$status, "error")) {
+    res$status <- 400
     return(result)
+  }
+
+  if (!is.null(result$invalid_count) && result$invalid_count > 0L) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(
+      code = "CSV_INVALID_ROWS",
+      message = sprintf("Existem %d linhas inválidas. Corrija o arquivo antes de confirmar a importação.", result$invalid_count)
+    ))))
+  }
+
+  if (!is.null(result$duplicate_count) && result$duplicate_count > 0L && !dry_run_flag && !duplicate_flag) {
+    res$status <- 400
+    return(build_api_response("error", NULL, errors = list(list(
+      code = "DUPLICATE_ROWS",
+      message = sprintf("Foram detectadas %d duplicatas potenciais. Reenvie com include_duplicates = TRUE para confirmar a inclusão deliberada.", result$duplicate_count)
+    ))))
   }
 
   build_api_response("success", result)

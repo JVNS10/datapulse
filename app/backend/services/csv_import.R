@@ -143,23 +143,43 @@ detect_csv_separator <- function(text) {
   ","
 }
 
+extract_record_value <- function(record, field_name) {
+  if (is.null(record)) {
+    return(NULL)
+  }
+
+  if (is.list(record) && !is.null(record[[field_name]])) {
+    return(record[[field_name]])
+  }
+
+  if (is.data.frame(record) && field_name %in% names(record)) {
+    return(record[[field_name]][1L])
+  }
+
+  if (is.atomic(record) && !is.null(names(record)) && field_name %in% names(record)) {
+    return(record[[field_name]])
+  }
+
+  NULL
+}
+
 build_duplicate_signature <- function(row) {
-  date_value <- normalize_date_value(row$date)
-  description_value <- tolower(trimws(as.character(row$description)))
-  category_value <- tolower(trimws(as.character(row$category)))
-  type_value <- normalize_type_value(row$type)
-  amount_value <- round(as.numeric(row$amount), 2)
+  date_value <- normalize_date_value(extract_record_value(row, "date"))
+  description_value <- tolower(trimws(as.character(extract_record_value(row, "description"))))
+  category_value <- tolower(trimws(as.character(extract_record_value(row, "category"))))
+  type_value <- normalize_type_value(extract_record_value(row, "type"))
+  amount_value <- round(as.numeric(extract_record_value(row, "amount")), 2)
 
   paste(date_value, description_value, category_value, type_value, sprintf("%.2f", amount_value), sep = "::")
 }
 
 validate_import_record <- function(row, row_position) {
   errors <- character(0)
-  date_value <- normalize_date_value(row$date)
-  description_value <- trimws(as.character(row$description))
-  category_value <- trimws(as.character(row$category))
-  type_value <- normalize_type_value(row$type)
-  amount_value <- normalize_amount_value(row$amount)
+  date_value <- normalize_date_value(extract_record_value(row, "date"))
+  description_value <- trimws(as.character(extract_record_value(row, "description")))
+  category_value <- trimws(as.character(extract_record_value(row, "category")))
+  type_value <- normalize_type_value(extract_record_value(row, "type"))
+  amount_value <- normalize_amount_value(extract_record_value(row, "amount"))
 
   if (is.na(date_value) || !nzchar(date_value)) {
     errors <- c(errors, "Data inválida ou ausente.")
@@ -290,11 +310,11 @@ preview_csv_import <- function(file_path, db_path = get_default_db_path()) {
     }
 
     normalized_row <- as.data.frame(validation$normalized, stringsAsFactors = FALSE)
-    normalized_row$date <- validation$normalized$date
-    normalized_row$description <- validation$normalized$description
-    normalized_row$category <- validation$normalized$category
-    normalized_row$type <- validation$normalized$type
-    normalized_row$amount <- validation$normalized$amount
+    normalized_row[['date']] <- validation$normalized[['date']]
+    normalized_row[['description']] <- validation$normalized[['description']]
+    normalized_row[['category']] <- validation$normalized[['category']]
+    normalized_row[['type']] <- validation$normalized[['type']]
+    normalized_row[['amount']] <- validation$normalized[['amount']]
 
     fingerprint <- build_duplicate_signature(normalized_row)
     duplicate_in_file <- fingerprint %in% current_fingerprints
@@ -331,11 +351,11 @@ preview_csv_import <- function(file_path, db_path = get_default_db_path()) {
     valid_rows = results$valid_rows,
     normalized_sample = lapply(results$normalized_rows, function(item) {
       list(
-        date = item$date,
-        description = item$description,
-        category = item$category,
-        type = item$type,
-        amount = item$amount
+        date = extract_record_value(item, "date"),
+        description = extract_record_value(item, "description"),
+        category = extract_record_value(item, "category"),
+        type = extract_record_value(item, "type"),
+        amount = extract_record_value(item, "amount")
       )
     }),
     total_rows = nrow(import_df)
@@ -376,11 +396,11 @@ confirm_csv_import <- function(file_path, include_duplicates = FALSE, db_path = 
 
   rows_df <- as.data.frame(do.call(rbind, lapply(rows_to_import, function(row) {
     data.frame(
-      date = as.character(row$date),
-      description = as.character(row$description),
-      category = as.character(row$category),
-      type = as.character(row$type),
-      amount = as.numeric(row$amount),
+      date = as.character(extract_record_value(row, "date")),
+      description = as.character(extract_record_value(row, "description")),
+      category = as.character(extract_record_value(row, "category")),
+      type = as.character(extract_record_value(row, "type")),
+      amount = as.numeric(extract_record_value(row, "amount")),
       stringsAsFactors = FALSE
     )
   })), stringsAsFactors = FALSE)

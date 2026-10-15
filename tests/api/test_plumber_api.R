@@ -18,23 +18,27 @@ repo_root <- getwd()
 source(file.path(repo_root, "app", "backend", "services", "finance_analysis.R"))
 source(file.path(repo_root, "app", "backend", "services", "data_access.R"))
 
-Sys.setenv(DATAPULSE_DB_PATH = tempfile(fileext = ".sqlite"))
+db_path <- tempfile(pattern = "datapulse_api_", fileext = ".sqlite")
+Sys.setenv(DATAPULSE_DB_PATH = db_path)
 api_file <- file.path(repo_root, "app", "backend", "api", "plumber.R")
 port <- 8001L
 
 server <- callr::r_bg(
-  function(api_file, port_value) {
-    Sys.setenv(DATAPULSE_DB_PATH = Sys.getenv("DATAPULSE_DB_PATH"))
+  function(api_file, port_value, db_file) {
+    Sys.setenv(DATAPULSE_DB_PATH = db_file)
     source(api_file)
     pr <- plumber::plumb(api_file)
     pr[['run']](port = as.integer(port_value), host = '127.0.0.1', swagger = FALSE)
   },
-  args = list(api_file, as.character(port))
+  args = list(api_file, as.character(port), db_path)
 )
 
 on.exit({
   if (inherits(server, "r_process") && server$is_alive()) {
     server$kill()
+  }
+  if (file.exists(db_path)) {
+    unlink(db_path, force = TRUE)
   }
 }, add = TRUE)
 
@@ -177,7 +181,7 @@ stopifnot(empty_body$data$total_income == 0)
 stopifnot(empty_body$data$total_expense == 0)
 stopifnot(empty_body$data$net_balance == 0)
 
-insert_transaction(Sys.getenv("DATAPULSE_DB_PATH"), list(
+insert_transaction(db_path, list(
   date = "2026-01-18",
   description = "Mercado",
   category = "Alimentação",
