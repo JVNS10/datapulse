@@ -1,0 +1,15 @@
+repo_root <- getwd()
+source(file.path(repo_root, "app", "backend", "services", "finance_analysis.R"))
+
+csv_path <- file.path(repo_root, "app", "data", "raw", "transactions_sample.csv")
+transactions <- load_transactions(csv_path)
+summary <- build_financial_summary(transactions)
+
+cat("Resumo financeiro\n")
+cat("Total de receitas:", summary$totals$total_income, "\n")
+cat("Total de despesas:", summary$totals$total_expense, "\n")
+cat("Saldo:", summary$totals$net_balance, "\n")
+cat("\nDespesas por categoria:\n")
+print(summary$expenses_by_category)
+cat("\nResumo mensal:\n")
+print(summary$monthly_summary)

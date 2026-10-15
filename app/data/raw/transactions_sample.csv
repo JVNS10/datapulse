@@ -1,0 +1,8 @@
+date,description,category,type,amount
+2026-01-02,Salário,Salário,income,3500
+2026-01-15,Venda de produto,Vendas,income,1200
+2026-02-05,Aluguel,Moradia,expense,1800
+2026-02-20,Supermercado,Alimentação,expense,420
+2026-03-18,Consultoria,Serviços,expense,900
+2026-04-01,Receita extra,Vendas,income,1500
+2026-04-15,Internet,Serviços,expense,180
