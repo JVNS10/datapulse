@@ -1,0 +1,8 @@
+# Database files
+app/data/sqlite/*.sqlite
+app/data/sqlite/*.db
+app/data/sqlite/*.sqlite3
+
+# Local runtime artifacts
+.DS_Store
+Rplots.pdf
