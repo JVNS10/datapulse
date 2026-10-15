@@ -25,7 +25,11 @@
         <form id="csv-import-form" class="import-form">
           <label class="file-field" for="csv-file">
             <span>Selecionar arquivo CSV</span>
-            <input id="csv-file" name="file" type="file" accept=".csv,text/csv" />
+            <div class="file-picker">
+              <span class="file-button">Escolher arquivo</span>
+              <span id="selected-file-name" class="file-name">Nenhum arquivo selecionado</span>
+              <input id="csv-file" name="file" type="file" accept=".csv,text/csv" />
+            </div>
           </label>
 
           <div class="form-actions">

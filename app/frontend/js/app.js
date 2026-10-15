@@ -1,6 +1,7 @@
 const summaryCards = document.getElementById("summary-cards");
 const importForm = document.getElementById("csv-import-form");
 const fileInput = document.getElementById("csv-file");
+const selectedFileName = document.getElementById("selected-file-name");
 const includeDuplicatesInput = document.getElementById("include-duplicates");
 const importStatus = document.getElementById("import-status");
 const previewSummary = document.getElementById("preview-summary");
@@ -14,6 +15,18 @@ const state = {
   lastPreview: null,
   lastFile: null
 };
+
+function updateSelectedFileLabel() {
+  if (!selectedFileName || !fileInput) {
+    return;
+  }
+
+  const file = fileInput.files && fileInput.files[0];
+  selectedFileName.textContent = file ? file.name : "Nenhum arquivo selecionado";
+}
+
+fileInput?.addEventListener("change", updateSelectedFileLabel);
+updateSelectedFileLabel();
 
 function setStatus(type, message) {
   importStatus.className = `status ${type}`;
