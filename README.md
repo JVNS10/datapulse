@@ -59,7 +59,16 @@ cd "/home/joao/Documentos/projetos em R" && Rscript -e "source('app/backend/api/
 cd "/home/joao/Documentos/projetos em R/app/frontend" && python3 -m http.server 3222
 ```
 
-### 3) Acesso
+### 3) Variáveis de ambiente
+
+```bash
+export DATAPULSE_DB_PATH="/caminho/temporario/datapulse.sqlite"
+export DATAPULSE_ALLOWED_ORIGINS="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3222,http://127.0.0.1:3222,http://localhost:4321,http://127.0.0.1:4321"
+```
+
+O backend usa `DATAPULSE_DB_PATH` para determinar o SQLite de execução, e `DATAPULSE_ALLOWED_ORIGINS` para limitar as origens CORS aceitas. A aplicação não substitui autenticação nem autorização em ambientes públicos.
+
+### 4) Acesso
 
 - Frontend: http://127.0.0.1:3222/
 - API: http://127.0.0.1:8001/
@@ -76,6 +85,11 @@ cd "/home/joao/Documentos/projetos em R/app/frontend" && python3 -m http.server 
 - PUT /api/transactions/{id}
 - DELETE /api/transactions/{id}
 - POST /api/analyze
+- POST /api/import/csv
+
+### Importação CSV
+
+O endpoint `POST /api/import/csv` aceita um arquivo enviado em `multipart/form-data` com o campo `file` e suporta pré-visualização e confirmação via `dry_run=true` ou `dry_run=false`. A validação inclui cabeçalhos obrigatórios (`date`, `description`, `category`, `type`, `amount`), delimitadores CSV, UTF-8 com BOM, datas em `YYYY-MM-DD` e `DD/MM/YYYY`, valores monetários positivos, tipos permitidos (`income`/`expense`) e detecção de duplicatas por assinatura estável.
 
 ### Payload padrão
 

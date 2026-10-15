@@ -18,6 +18,25 @@ start_db <- function() {
 
 db_path <- start_db()
 
+valid_dir <- tempfile(pattern = "datapulse_valid_")
+if (!dir.exists(valid_dir)) dir.create(valid_dir, recursive = TRUE, showWarnings = FALSE)
+on.exit(unlink(valid_dir, recursive = TRUE, force = TRUE), add = TRUE)
+valid_db_path <- file.path(valid_dir, "nested", "datapulse.sqlite")
+resolved_valid_db_path <- resolve_db_path(valid_db_path)
+stopifnot(grepl("datapulse.sqlite$", resolved_valid_db_path))
+
+empty_path_error <- tryCatch({
+  resolve_db_path("")
+  FALSE
+}, error = function(e) TRUE)
+stopifnot(empty_path_error)
+
+directory_path_error <- tryCatch({
+  resolve_db_path(valid_dir)
+  FALSE
+}, error = function(e) TRUE)
+stopifnot(directory_path_error)
+
 initial_rows <- list_transactions(db_path)
 stopifnot(is.data.frame(initial_rows))
 stopifnot(nrow(initial_rows) == 0L)

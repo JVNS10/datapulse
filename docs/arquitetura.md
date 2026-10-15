@@ -46,13 +46,14 @@ Tecnologias:
 
 ### 2.3 Persistência
 
-A persistência será tratada em uma etapa posterior com SQLite, mantendo a compatibilidade com a arquitetura atual.
+A persistência atual usa SQLite como fonte primária para transações, com a camada de acesso centralizada em `app/backend/services/data_access.R`.
 
-Responsabilidades esperadas:
+Responsabilidades atuais:
 
-- armazenar dados de transações;
-- manter cadastros de categorias, contas e usuários;
-- permitir consultas analíticas por período.
+- armazenar transações financeiras com validação de esquema;
+- manter o histórico de alterações e permitir CRUD por API;
+- suportar testes isolados com bancos temporários e `DATAPULSE_DB_PATH`;
+- preservar o núcleo financeiro em R sem duplicação no frontend.
 
 ## 3. Separação de responsabilidades
 
@@ -71,8 +72,8 @@ A arquitetura será organizada em camadas:
    - funções de validação
 
 4. Camada de dados
-   - SQLite em fase futura
-   - arquivos locais ou datasets de prototipagem na fase inicial
+   - SQLite em produção local e testes específicos
+   - arquivos temporários em diretórios isolados para validação automatizada
 
 ## 4. Estrutura de diretórios
 

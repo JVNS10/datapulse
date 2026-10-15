@@ -19,7 +19,9 @@ source(file.path(repo_root, "app", "backend", "services", "finance_analysis.R"))
 source(file.path(repo_root, "app", "backend", "services", "data_access.R"))
 
 db_path <- tempfile(pattern = "datapulse_api_", fileext = ".sqlite")
+allowed_origins <- "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3222,http://127.0.0.1:3222,http://localhost:4321,http://127.0.0.1:4321"
 Sys.setenv(DATAPULSE_DB_PATH = db_path)
+Sys.setenv(DATAPULSE_ALLOWED_ORIGINS = allowed_origins)
 api_file <- file.path(repo_root, "app", "backend", "api", "plumber.R")
 port <- 8001L
 
@@ -65,6 +67,33 @@ stopifnot(health_response$status_code == 200)
 health_body <- jsonlite::fromJSON(httr::content(health_response, "text", encoding = "UTF-8"), simplifyVector = TRUE)
 stopifnot(identical(health_body$status, "success"))
 stopifnot(identical(health_body$data$status, "ok"))
+
+allowed_origin_response <- httr::GET(
+  sprintf("http://127.0.0.1:%s/health", port),
+  httr::add_headers(Origin = "http://localhost:3000")
+)
+stopifnot(allowed_origin_response$status_code == 200)
+stopifnot(identical(httr::headers(allowed_origin_response)[["access-control-allow-origin"]], "http://localhost:3000"))
+
+blocked_origin_response <- httr::GET(
+  sprintf("http://127.0.0.1:%s/health", port),
+  httr::add_headers(Origin = "https://evil.example")
+)
+stopifnot(blocked_origin_response$status_code == 403)
+blocked_origin_body <- jsonlite::fromJSON(httr::content(blocked_origin_response, "text", encoding = "UTF-8"), simplifyVector = TRUE)
+stopifnot(identical(blocked_origin_body$error, "Origin not allowed by CORS policy"))
+
+preflight_response <- httr::VERB(
+  "OPTIONS",
+  url = sprintf("http://127.0.0.1:%s/health", port),
+  httr::add_headers(
+    Origin = "http://localhost:3000",
+    "Access-Control-Request-Method" = "POST",
+    "Access-Control-Request-Headers" = "Content-Type, Authorization"
+  )
+)
+stopifnot(preflight_response$status_code == 204)
+stopifnot(identical(httr::headers(preflight_response)[["access-control-allow-origin"]], "http://localhost:3000"))
 
 create_payload <- list(
   date = "2026-01-02",

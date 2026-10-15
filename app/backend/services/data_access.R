@@ -30,22 +30,46 @@ resolve_project_root <- function() {
 }
 
 resolve_db_path <- function(db_path = NULL) {
-  if (!is.null(db_path) && nzchar(as.character(db_path))) {
-    resolved <- as.character(db_path)
-    dir.create(dirname(resolved), recursive = TRUE, showWarnings = FALSE)
-    return(normalizePath(resolved, winslash = "/", mustWork = FALSE))
+  candidate <- db_path
+  if (is.null(candidate)) {
+    candidate <- Sys.getenv("DATAPULSE_DB_PATH", unset = "")
   }
 
-  env_path <- Sys.getenv("DATAPULSE_DB_PATH", unset = "")
-  if (nzchar(env_path)) {
-    dir.create(dirname(env_path), recursive = TRUE, showWarnings = FALSE)
-    return(normalizePath(env_path, winslash = "/", mustWork = FALSE))
+  if (is.null(candidate) || is.na(candidate) || !nzchar(trimws(as.character(candidate)))) {
+    if (!is.null(db_path)) {
+      stop("Caminho do SQLite inválido: o valor informado está vazio.")
+    }
+    root_dir <- resolve_project_root()
+    db_file <- file.path(root_dir, "app", "data", "sqlite", "datapulse.db")
+    candidate <- db_file
   }
 
-  root_dir <- resolve_project_root()
-  db_file <- file.path(root_dir, "app", "data", "sqlite", "datapulse.db")
-  dir.create(dirname(db_file), recursive = TRUE, showWarnings = FALSE)
-  normalizePath(db_file, winslash = "/", mustWork = FALSE)
+  resolved <- trimws(as.character(candidate))
+  if (!nzchar(resolved)) {
+    stop("Caminho do SQLite inválido: o valor informado está vazio.")
+  }
+
+  parent_dir <- dirname(resolved)
+  if (!nzchar(parent_dir)) {
+    stop(sprintf("Caminho do SQLite inválido: '%s' não possui um diretório pai válido.", resolved))
+  }
+
+  if (!dir.exists(parent_dir)) {
+    created <- dir.create(parent_dir, recursive = TRUE, showWarnings = FALSE)
+    if (!isTRUE(created)) {
+      stop(sprintf("Não foi possível criar o diretório do banco de dados: '%s'", parent_dir))
+    }
+  }
+
+  if (!file.info(parent_dir)$isdir) {
+    stop(sprintf("Caminho do SQLite inválido: o diretório pai '%s' aponta para um arquivo.", parent_dir))
+  }
+
+  if (isTRUE(file.exists(resolved) && file.info(resolved)$isdir)) {
+    stop(sprintf("Caminho do SQLite inválido: '%s' aponta para um diretório, não para um arquivo de banco.", resolved))
+  }
+
+  normalizePath(resolved, winslash = "/", mustWork = FALSE)
 }
 
 get_default_db_path <- function() {

@@ -2,9 +2,16 @@
 
 ## Etapa atual
 
-Etapa 6A: Persistência com SQLite e CRUD — concluída e validada.
+Etapa 7B: hardening de segurança e consistência — concluída localmente com validação de regressão.
 
-A solução já possui persistência real para transações em SQLite, com fluxo de CRUD e manutenção do núcleo financeiro em R. A lógica de negócio continua centralizada no backend, e a API REST segue como interface principal para frontend e integrações.
+A solução mantém persistência real para transações em SQLite, fluxo de CRUD e importação CSV com pré-visualização e confirmação. O cálculo financeiro continua centralizado em R, e a API REST atua como interface principal para frontend e integrações. Correções recentes envolveram CORS restritivo por origem autorizada, validação explícita do caminho do SQLite e atualização da documentação operacional.
+
+## Verificação final da Etapa 7B
+
+- Frontend validado em `http://127.0.0.1:4321/` com backend em `http://127.0.0.1:8001/`.
+- CORS revisado para permitir explicitamente `http://127.0.0.1:4321` e `http://localhost:4321`, mantendo bloqueio para origens desconhecidas.
+- Validação no navegador: carregamento do dashboard com comunicação da API em `200`, ausência de erros de console e atualização do resumo após criação de transações de demonstração (receitas `2500`, despesas `150`, saldo líquido `2350`).
+- Regressão confirmada: `Rscript tests/finance/test_finance_analysis.R`, `Rscript tests/db/test_sqlite_persistence.R`, `Rscript tests/api/test_plumber_api.R`, `Rscript tests/import/test_csv_import.R`, `node --check app/frontend/js/api.js` e `node --check app/frontend/js/app.js` passaram.
 
 ## Tabela de critérios de aceitação
 

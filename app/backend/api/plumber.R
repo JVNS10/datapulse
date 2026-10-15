@@ -190,15 +190,43 @@ extract_upload_path <- function(file_value, req = NULL) {
   NULL
 }
 
+allowed_origins <- Sys.getenv("DATAPULSE_ALLOWED_ORIGINS", unset = "")
+if (!nzchar(allowed_origins)) {
+  allowed_origins <- paste0(
+    c(
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+      "http://localhost:3222",
+      "http://127.0.0.1:3222",
+      "http://localhost:4321",
+      "http://127.0.0.1:4321"
+    ),
+    collapse = ","
+  )
+}
+allowed_origins <- unique(trimws(strsplit(allowed_origins, ",", fixed = TRUE)[[1]]))
+allowed_origins <- allowed_origins[nzchar(allowed_origins)]
+
 #* @filter cors
 function(req, res) {
-  res$setHeader("Access-Control-Allow-Origin", "*")
-  res$setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-  res$setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
+  origin <- if (is.null(req$HTTP_ORIGIN)) "" else trimws(req$HTTP_ORIGIN)
+  if (nzchar(origin) && !(origin %in% allowed_origins)) {
+    res$status <- 403
+    return(list(error = "Origin not allowed by CORS policy"))
+  }
+
+  if (nzchar(origin)) {
+    res$setHeader("Access-Control-Allow-Origin", origin)
+    res$setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    res$setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+    res$setHeader("Access-Control-Max-Age", "86400")
+  }
 
   if (req$REQUEST_METHOD == "OPTIONS") {
-    res$status <- 200
-    return(list())
+    res$status <- 204
+    return("")
   }
 
   plumber::forward()
