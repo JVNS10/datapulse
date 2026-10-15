@@ -1,263 +1,259 @@
 # Documento de arquitetura — DataPulse
 
-## 1. Visão geral
+## Visão geral
 
-DataPulse é uma aplicação de análise financeira com foco em dashboard, indicadores e relatórios. A arquitetura pretende manter a lógica financeira separada da camada de apresentação, permitindo que a aplicação cresça em etapas sem acoplamento excessivo.
+O DataPulse é uma aplicação local para acompanhamento financeiro pessoal e analítico, com dashboard em HTML/CSS/JavaScript, API REST em R usando Plumber e persistência em SQLite. O projeto foi construído para manter a lógica financeira centralizada no backend em R, evitando duplicação de regras no frontend.
 
-A proposta inicial usa:
+A arquitetura atual reflete a implementação existente e não uma proposta futura. O sistema suporta CRUD de transações, filtros, cálculo financeiro, CSV import e testes automatizados sobre o fluxo real do sistema.
 
-- R + Plumber para processar dados e expor endpoints.
-- JavaScript + HTML + CSS para a interface web.
-- SQLite como camada de persistência futura.
+## Camadas e responsabilidades
 
-## 2. Arquitetura proposta
+### Frontend
 
-### 2.1 Frontend
+- Arquivos: `app/frontend/index.html`, `app/frontend/css/styles.css`, `app/frontend/js/api.js`, `app/frontend/js/app.js`
+- Responsabilidades:
+  - renderizar dashboard, tabela e indicadores;
+  - coletar dados do usuário para cadastro e importação CSV;
+  - enviar requisições para a API em HTTP;
+  - tratar estados de carregamento, erro e sucesso;
+  - evitar cálculos financeiros duplicados no navegador.
 
-Responsabilidades:
+### API REST em R (Plumber)
 
-- renderizar dashboards e páginas principais;
-- consumir os endpoints da API em JSON;
-- aplicar filtros de período, categoria e conta;
-- mostrar gráficos, tabelas e indicadores em telas responsivas;
-- tratar feedback visual em casos de erro ou ausência de dados.
+- Arquivo: `app/backend/api/plumber.R`
+- Responsabilidades:
+  - expor endpoints REST em JSON;
+  - receber requisições do frontend;
+  - validar payloads e arquivos de upload;
+  - chamar serviços financeiros e persistência;
+  - aplicar CORS por allowlist e lidar com preflight OPTIONS.
 
-Tecnologias:
+### Serviços financeiros
 
-- HTML para estrutura da interface;
-- CSS para layout e estilos;
-- JavaScript para interações e chamadas assíncronas;
-- bibliotecas de visualização em uma etapa posterior, se houver necessidade.
+- Arquivo: `app/backend/services/finance_analysis.R`
+- Responsabilidades:
+  - validar transações;
+  - calcular totais, despesas por categoria e resumo mensal;
+  - receber dados filtrados e produzir a resposta analítica.
 
-### 2.2 Backend
+### Persistência SQLite
 
-Responsabilidades:
+- Arquivo: `app/backend/services/data_access.R`
+- Responsabilidades:
+  - resolver o caminho do banco com validação explícita;
+  - inicializar o schema de transações;
+  - inserir, listar, consultar, atualizar e excluir registros;
+  - manter transações e operações em SQLite com controle de integridade.
 
-- processar dados financeiros; 
-- fornecer métricas agregadas;
-- validar entradas e formatar respostas;
-- isolar regras de negócio em módulos específicos.
+### Importação CSV
 
-Tecnologias:
+- Arquivo: `app/backend/services/csv_import.R`
+- Responsabilidades:
+  - ler arquivos CSV em UTF-8/BOM e com separadores reconhecidos;
+  - normalizar cabeçalhos e datas;
+  - validar registros e tipos de transação;
+  - identificar duplicatas e linhas inválidas;
+  - executar importação com preview e confirmação.
 
-- R para processamento analítico e transformação de dados;
-- Plumber para expor uma API REST;
-- helpers e funções utilitárias para facilitar testes e manutenção futura.
+## Diagrama de arquitetura
 
-### 2.3 Persistência
-
-A persistência atual usa SQLite como fonte primária para transações, com a camada de acesso centralizada em `app/backend/services/data_access.R`.
-
-Responsabilidades atuais:
-
-- armazenar transações financeiras com validação de esquema;
-- manter o histórico de alterações e permitir CRUD por API;
-- suportar testes isolados com bancos temporários e `DATAPULSE_DB_PATH`;
-- preservar o núcleo financeiro em R sem duplicação no frontend.
-
-## 3. Separação de responsabilidades
-
-A arquitetura será organizada em camadas:
-
-1. Camada de apresentação
-   - HTML/CSS/JS
-   - dashboard e filtros
-
-2. Camada de API
-   - endpoints em Plumber
-   - serialização JSON
-
-3. Camada de serviços
-   - regras de agregação e métricas
-   - funções de validação
-
-4. Camada de dados
-   - SQLite em produção local e testes específicos
-   - arquivos temporários em diretórios isolados para validação automatizada
-
-## 4. Estrutura de diretórios
-
-```text
-DataPulse/
-├── README.md
-├── docs/
-│   └── arquitetura.md
-├── app/
-│   ├── frontend/
-│   │   ├── index.html
-│   │   ├── css/
-│   │   ├── js/
-│   │   └── assets/
-│   ├── backend/
-│   │   ├── api/
-│   │   ├── services/
-│   │   ├── config/
-│   │   └── utils/
-│   ├── data/
-│   │   ├── raw/
-│   │   ├── processed/
-│   │   └── sqlite/
-│   ├── shared/
-│   │   └── contracts/
-│   └── scripts/
-├── tests/
-├── .gitignore
-├── requirements.R
-└── .Rprofile
+```mermaid
+flowchart LR
+   A[Frontend HTML/CSS/JS] -->|HTTP JSON + multipart/form-data| B[Plumber API]
+   B --> C[finance_analysis.R]
+   B --> D[data_access.R]
+   B --> E[csv_import.R]
+   D --> F[(SQLite)]
+   E --> D
+   C --> B
+   B --> A
 ```
 
-## 5. Contratos preliminares da API
+## Fluxo principal
 
-A API será REST e responderá em JSON. A proposta inicial prioriza clareza e extensão.
+### 1. Dashboard e análise
 
-### 5.1 Formato padrão de resposta
+1. O frontend acessa `GET /api/dashboard/summary` e `GET /api/transactions`.
+2. O Plumber consulta a camada de dados em SQLite.
+3. O serviço financeiro calcula totais e agregados.
+4. O frontend renderiza indicadores, tabela e filtros.
+
+### 2. Cadastro e edição
+
+1. O frontend envia um JSON para `POST /api/transactions` ou `PUT /api/transactions/:id`.
+2. A API valida os campos obrigatórios: `date`, `description`, `category`, `type`, `amount`.
+3. A camada de persistência grava a transação em SQLite.
+4. O retorno da API define a resposta visual do dashboard.
+
+### 3. Importação de CSV
+
+1. O usuário seleciona um arquivo CSV no dashboard.
+2. O frontend envia o arquivo via multipart/form-data para `POST /api/import/csv`.
+3. O backend valida estrutura, colunas, tipos, valores e duplicatas.
+4. Em preview, a API não altera o banco.
+5. Na confirmação, a API valida novamente e grava em transação SQLite.
+6. O dashboard atualiza os indicadores após a importação bem-sucedida.
+
+## Contratos da API
+
+### Resposta padrão
 
 ```json
 {
   "status": "success",
-  "data": {},
-  "meta": {
-    "generatedAt": "2026-10-14T00:00:00Z",
-    "requestId": "uuid"
-  },
+  "data": { ... },
+  "meta": { "generatedAt": "2026-01-02T12:00:00Z" },
   "errors": []
 }
 ```
 
-### 5.2 Formato de erro
+Em caso de erro:
 
 ```json
 {
   "status": "error",
   "data": null,
-  "meta": {
-    "generatedAt": "2026-10-14T00:00:00Z",
-    "requestId": "uuid"
-  },
-  "errors": [
-    { "code": "INVALID_PERIOD", "message": "Período informado é inválido." }
-  ]
+  "meta": { "generatedAt": "2026-01-02T12:00:00Z" },
+  "errors": [{ "code": "INVALID_PAYLOAD", "message": "Detalhe do erro" }]
 }
 ```
 
-### 5.3 Endpoint principal: health check
+### Endpoints principais
 
-- Método: GET
-- Rota: `/health`
+- `GET /health`
+  - retorna status geral do serviço.
 
-Resposta esperada:
+- `GET /api/dashboard/summary`
+  - retorna resumo do dashboard com receitas, despesas, saldo líquido e contagens.
+
+- `GET /api/transactions`
+  - retorna lista de transações do banco.
+
+- `GET /api/transactions/<id>`
+  - busca uma transação específica.
+
+- `POST /api/transactions`
+  - cadastra uma transação.
+
+- `PUT /api/transactions/<id>`
+  - atualiza uma transação.
+
+- `DELETE /api/transactions/<id>`
+  - remove uma transação.
+
+- `POST /api/analyze`
+  - recebe transações e filtros e devolve resumo financeiro em JSON.
+
+- `POST /api/import/csv`
+  - recebe um arquivo CSV para pré-visualização e importação confirmada.
+
+## Formato das transações
+
+A estrutura interna de uma transação é:
 
 ```json
 {
-  "status": "success",
-  "data": {
-    "service": "DataPulse",
-    "status": "ok",
-    "version": "0.1.0"
-  },
-  "meta": {
-    "generatedAt": "2026-10-14T00:00:00Z"
-  },
-  "errors": []
+  "date": "2026-01-02",
+  "description": "Salário",
+  "category": "Renda",
+  "type": "income",
+  "amount": 2500.00
 }
 ```
 
-### 5.4 Endpoint: resumo financeiro
+Regras aplicadas:
 
-- Método: GET
-- Rota: `/api/v1/dashboard/summary`
-- Query params: `period`, `accountId`, `categoryId`
+- `date`: formato ISO `YYYY-MM-DD` internamente;
+- `description`: texto obrigatório;
+- `category`: categoria obrigatória;
+- `type`: `income` ou `expense`;
+- `amount`: número maior que zero.
 
-Resposta esperada:
+## CSV canônico
 
-```json
-{
-  "status": "success",
-  "data": {
-    "period": "2026-09",
-    "totalIncome": 25000.00,
-    "totalExpense": 18000.00,
-    "netBalance": 7000.00,
-    "avgExpense": 1500.00,
-    "accountCount": 4
-  },
-  "meta": {
-    "generatedAt": "2026-10-14T00:00:00Z"
-  },
-  "errors": []
-}
+O CSV importado usa a convenção:
+
+```csv
+date,description,category,type,amount
+2026-01-02,Salário,Renda,income,2500.00
+2026-01-03,Transporte,Transporte,expense,150.00
 ```
 
-### 5.5 Endpoint: histórico por categoria
+Suporte implementado:
 
-- Método: GET
-- Rota: `/api/v1/metrics/category-trend`
-- Query params: `period`, `categoryId`
+- separadores `,` ou `;`
+- UTF-8 com BOM
+- cabeçalhos em inglês e em português
+- datas em `YYYY-MM-DD` ou `DD/MM/YYYY`
+- normalização de `type` para `income` e `expense`
+- valores monetários em ponto decimal
 
-Resposta esperada:
+## Integridade do SQLite
 
-```json
-{
-  "status": "success",
-  "data": [
-    { "month": "2026-01", "income": 5000.00, "expense": 4200.00 },
-    { "month": "2026-02", "income": 5200.00, "expense": 4300.00 }
-  ],
-  "meta": {
-    "generatedAt": "2026-10-14T00:00:00Z"
-  },
-  "errors": []
-}
+- O banco é inicializado com `CREATE TABLE IF NOT EXISTS` para não apagar dados existentes.
+- O caminho do banco é resolvido por `resolve_db_path()` e validado antes do uso.
+- O módulo de dados usa consultas parametrizadas para evitar concatenação de SQL.
+- Operações de importação são executadas em transação; falhas geram rollback.
+- Testes usam bancos temporários e isolados para evitar interferência no banco de desenvolvimento.
+
+## Segurança e operação
+
+### CORS
+
+- A API usa allowlist explícita por variável de ambiente `DATAPULSE_ALLOWED_ORIGINS`.
+- Requisições `OPTIONS` foram tratadas para preflight.
+- `Access-Control-Allow-Origin: *` não é usado por padrão.
+- CORS não substitui autenticação nem autorização.
+
+### Paths e arquivos
+
+- O caminho do SQLite não é controlado pelo cliente.
+- O servidor valida se o caminho está vazio, aponta para diretório ou usa diretório pai inválido.
+- Arquivos CSV são analisados apenas em memória/temporário; o conteúdo não é executado.
+
+## Estrutura de diretórios do projeto
+
+```text
+DataPulse/
+├── README.md
+├── PROJECT_STATUS.md
+├── requirements.R
+├── .gitignore
+├── app/
+│   ├── backend/
+│   │   ├── api/plumber.R
+│   │   └── services/
+│   │       ├── csv_import.R
+│   │       ├── data_access.R
+│   │       └── finance_analysis.R
+│   ├── frontend/
+│   │   ├── css/styles.css
+│   │   ├── index.html
+│   │   └── js/
+│   │       ├── api.js
+│   │       └── app.js
+│   └── data/
+│       └── sqlite/
+├── docs/
+│   └── arquitetura.md
+├── tests/
+│   ├── api/test_plumber_api.R
+│   ├── db/test_sqlite_persistence.R
+│   ├── finance/test_finance_analysis.R
+│   └── import/test_csv_import.R
+└── .Rprofile
 ```
 
-## 6. Dependências iniciais
+## Observações operacionais
 
-As dependências a seguir são sugeridas pela necessidade funcional e pelo desenho arquitetural, sem introduzir escopo além do necessário.
+- Backend local padrão: `http://127.0.0.1:8001`
+- Frontend local padrão: `http://127.0.0.1:4321`
+- Banco local padrão: `DATAPULSE_DB_PATH` ou `app/data/sqlite/datapulse.db` quando não configurado
+- O projeto é executado localmente para demonstração e validação técnica; não deve ser exposto publicamente sem autenticação e controles de acesso.
 
-- R base: ambiente principal de processamento e execução da API.
-- plumber: exposição da API REST em R.
-- jsonlite: serialização e parse de JSON para comunicação entre frontend e backend.
-- DBI: abstração de acesso a banco de dados caso SQLite seja adotado.
-- RSQLite: suporte a SQLite em R, para persistência futura.
-- dplyr: manipulação e agregação de dados.
-- ggplot2: gráficos estáticos de apoio e prototipagem.
-- htmltools: integração de componentes HTML em aplicações web R, se necessário.
-- shiny: opcional para prototipagem de interface em etapas iniciais, mas não obrigatório para a arquitetura final.
+## Limites conhecidos
 
-Observação: esta etapa de planejamento evita instalação de dependências sem necessidade. A lista acima representa as tecnologias que devem ser avaliadas conforme cada etapa evolui, e não uma instalação obrigatória imediata.
-
-## 7. Critérios de aceitação das próximas etapas
-
-A Etapa 2 deve ser considerada iniciada somente após esta etapa atender os seguintes critérios:
-
-- a arquitetura estiver descrita em documentos da equipe;
-- a estrutura de diretórios estiver definida;
-- os contratos da API estiverem claros e versionados;
-- a separação entre frontend, backend e persistência estiver alinhada;
-- o escopo da Etapa 2 estiver limitado à construção inicial da API e da base visual, sem regras financeiras complexas.
-
-## 8. Pendências e riscos
-
-- Definir se a interface será monolítica ou modularizada por telas.
-- Definir convenção de nomenclatura de endpoints e campos.
-- Validar o tipo de dado financeiro a ser suportado em cada etapa.
-- Resolver se os filtros do dashboard serão processados no frontend ou no backend.
-- Definir a estrutura real da tabela de transações no SQLite.
-
-## 9. Escopo explícito da Etapa 2
-
-A Etapa 2 deve focar em:
-
-- estrutura inicial do backend em R/Plumber;
-- endpoints de health check e dashboard summary;
-- JSON de resposta padronizado;
-- base do frontend em HTML/CSS/JS;
-- integração inicial da camada de visualização com a API;
-- documentação mínima de uso da API.
-
-Ela não deve incluir:
-
-- regras financeiras complexas;
-- autenticação;
-- persistência final em SQLite;
-- cálculo avançado de indicadores sem base documental.
+- ainda não há autenticação ou autorização por usuário;
+- o sistema foi projetado para uso local e demonstração;
+- os dados financeiros devem ser fictícios em qualquer ambiente compartilhado;
+- a API não deve receber acesso público sem isolamento de rede, controles de acesso e políticas de armazenamento adequadas.
