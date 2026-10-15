@@ -1,209 +1,115 @@
 # DataPulse
 
-DataPulse é uma aplicação web de análise financeira planejada para usar R como motor de processamento, Plumber como API, HTML/CSS/JavaScript para a interface e SQLite como camada de persistência futura.
+DataPulse é uma aplicação de análise financeira desenvolvida em R, com API REST em Plumber, frontend web em HTML/CSS/JavaScript e persistência em SQLite. O núcleo financeiro continua centralizado em R para evitar duplicação de regras de negócio entre backend e interface.
 
-## Objetivo da etapa atual
+## Status atual
 
-Documentar a arquitetura inicial e o escopo técnico antes do desenvolvimento funcional. Esta etapa não implementa regras financeiras nem dados reais; ela define padrões de organização, integração e evolução incremental do projeto.
+Etapa 6A: Persistência com SQLite e CRUD concluída e validada.
 
-## Visão geral da arquitetura
+A solução mantém o motor financeiro em R, enquanto a API expõe operações de leitura, criação, atualização e exclusão de transações, armazenadas em banco SQLite local. A camada de persistência foi integrada ao backend sem quebrar os fluxos existentes de análise financeira e do dashboard.
 
-- Frontend: interface em HTML, CSS e JavaScript, responsável por renderizar dashboards, filtros e gráficos.
-- Backend: serviços em R com Plumber expõem endpoints REST para dados e métricas calculadas.
-- Dados: SQLite será a camada persistente futura; em uma primeira fase os dados podem ser carregados em memória ou em arquivos locais para prototipagem.
-- Integração: o frontend consome a API em JSON e a interface exibe dados tratados no cliente ou no backend.
+## Arquitetura
 
-## Estrutura de diretórios proposta
+- Frontend: dashboard em HTML, CSS e JavaScript, com filtros, métricas e ações de CRUD.
+- Backend: API REST em R com Plumber.
+- Serviço financeiro: funções de validação e agregação em R, incluindo cálculo de totais, categorias e monthly summary.
+- Persistência: SQLite com DBI/RSQLite, centralizada em módulos de acesso a dados.
+
+## Estrutura relevante
 
 ```text
 DataPulse/
 ├── README.md
-├── docs/
-│   └── arquitetura.md
+├── PROJECT_STATUS.md
 ├── app/
+│   ├── backend/
+│   │   ├── api/plumber.R
+│   │   ├── services/
+│   │   │   ├── finance_analysis.R
+│   │   │   └── data_access.R
+│   │   └── scripts/
 │   ├── frontend/
 │   │   ├── index.html
-│   │   ├── css/
-│   │   │   └── styles.css
-│   │   ├── js/
-│   │   │   ├── app.js
-│   │   │   ├── api.js
-│   │   │   └── charts.js
-│   │   └── assets/
-│   │       └── icons/
-│   ├── backend/
-│   │   ├── api/
-│   │   │   └── plumber.R
-│   │   ├── services/
-│   │   │   ├── metrics.R
-│   │   │   ├── finance.R
-│   │   │   └── data_access.R
-│   │   ├── config/
-│   │   │   └── config.R
-│   │   └── utils/
-│   │       └── helpers.R
-│   ├── shared/
-│   │   └── contracts/
-│   │       └── api-contracts.md
-│   ├── data/
-│   │   ├── raw/
-│   │   ├── processed/
-│   │   └── sqlite/
-│   └── scripts/
-│       └── setup.R
+│   │   ├── css/styles.css
+│   │   └── js/
+│   │       ├── api.js
+│   │       └── app.js
+│   └── data/sqlite/
+├── docs/
+│   └── arquitetura.md
 ├── tests/
-│   ├── api/
-│   └── frontend/
+│   ├── api/test_plumber_api.R
+│   └── db/test_sqlite_persistence.R
+├── requirements.R
 ├── .gitignore
-├── .Rprofile
-└── requirements.R
+└── teste.r
 ```
 
-## Tecnologias previstas
+## Como executar
 
-- R: análise estatística, processamento, sumarizações e modelos.
-- Plumber: API REST para expor funções do backend em JSON.
-- JavaScript: integração assíncrona, renderização dinâmica e manipulação de DOM.
-- HTML: estrutura da interface.
-- CSS: layout, estilos e responsividade.
-- SQLite: persistência futura de transações, categorias e saldos.
-
-## Regras de desenvolvimento
-
-- O backend deve expor endpoints bem definidos e estáveis.
-- O frontend deve consumir a API sem depender de detalhes internos de implementação.
-- As operações financeiras serão tratadas preferencialmente em módulos específicos e separadas da UI.
-- Toda nova funcionalidade deve seguir uma regra de evolução incremental, sem acoplar etapas futuras à etapa atual.
-
-## Critérios de aceitação desta etapa
-
-- A arquitetura foi documentada.
-- A estrutura de diretórios foi definida.
-- Os contratos preliminares da API foram descritos.
-- A separação de responsabilidades entre frontend e backend ficou clara.
-- O escopo da Etapa 2 foi delimitado sem implementar regras financeiras.
-
-## Pendências
-
-- Definir a estrutura detalhada de tabelas do SQLite.
-- Definir a estratégia de autenticação, caso seja necessária.
-- Escolher a biblioteca de gráficos para o frontend.
-- Definir a convenção de nomeação de endpoints e campos de resposta.
-- Validar os requisitos reais de dashboard e relatórios da Etapa 2.
-
-## Observação
-
-O arquivo atual `teste.r` foi mantido como referência exploratória e não foi alterado por esta etapa de planejamento. A arquitetura do projeto foi definida em documentos específicos, sem introduzir funcionalidades financeiras.
-
-## Etapa 2: Núcleo de análise financeira em R
-
-Esta etapa implementa o módulo de análise financeira de forma independente do frontend e da API. O componente principal está em `app/backend/services/finance_analysis.R`.
-
-### Modelo de transação
-
-A camada de análise aceita transações no formato CSV com as colunas:
-
-- `date`: data no formato `YYYY-MM-DD`
-- `description`: descrição da transação
-- `category`: categoria da transação
-- `type`: `income` ou `expense`
-- `amount`: valor numérico positivo, sem sinal ambíguo
-
-As receitas e despesas usam a mesma representação: o valor é sempre positivo e o tipo define a natureza da transação.
-
-### Como executar a análise
-
-1. Abra o terminal na raiz do projeto.
-2. Execute o script de exemplo:
+### 1) Backend
 
 ```bash
-cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript app/scripts/run_analysis.R
+cd "/home/joao/Documentos/projetos em R" && Rscript -e "source('app/backend/api/plumber.R'); pr <- plumber::plumb('app/backend/api/plumber.R'); pr[['run']](port = 8001, host = '127.0.0.1', swagger = FALSE)"
 ```
 
-3. Para validar o módulo automaticamente, execute:
+### 2) Frontend
 
 ```bash
-cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript tests/finance/test_finance_analysis.R
+cd "/home/joao/Documentos/projetos em R/app/frontend" && python3 -m http.server 3222
 ```
 
-### Arquivos relevantes desta etapa
+### 3) Acesso
 
-- `app/backend/services/finance_analysis.R` — funções de validação e cálculo financeiro
-- `app/data/raw/transactions_sample.csv` — CSV de exemplo com transações fictícias
-- `app/scripts/run_analysis.R` — execução do fluxo principal de análise
-- `tests/finance/test_finance_analysis.R` — testes automatizados do núcleo financeiro
+- Frontend: http://127.0.0.1:3222/
+- API: http://127.0.0.1:8001/
+- Health check: http://127.0.0.1:8001/health
 
-### Regras da etapa
+## Contrato da API
 
-- O processamento financeiro é independente da interface web.
-- Não há persistência em banco nem API nesta etapa.
-- Dados inválidos são rejeitados com mensagens claras.
-- O projeto evita dependências externas e usa apenas base R.
+### Endpoints principais
 
-## Etapa 6B: Importação, validação e persistência de CSV
+- GET /health
+- GET /api/transactions
+- POST /api/transactions
+- GET /api/transactions/{id}
+- PUT /api/transactions/{id}
+- DELETE /api/transactions/{id}
+- POST /api/analyze
 
-A camada de importação implementa a leitura de arquivos CSV em formato canônico `date,description,category,type,amount` e permite a normalização de cabeçalhos/valores em português para o padrão interno. O parser aceita `,` e `;`, BOM UTF-8, datas em `YYYY-MM-DD`, `DD/MM/AAAA`, `DD-MM-AAAA` e valores com separadores decimal em `.` e `,`.
+### Payload padrão
 
-### Contrato de importação
+```json
+{
+  "status": "success",
+  "data": { ... },
+  "meta": { "timestamp": "..." },
+  "errors": []
+}
+```
 
-Endpoint:
+A análise financeira continua sendo calculada em R e retorna totais, despesas por categoria e resumo mensal.
 
-- `POST /api/import/csv`
-- campo multipart: `file`
-- parâmetro opcional `dry_run=true|false`
-- parâmetro opcional `include_duplicates=true|false`
+## Validação executada
 
-Fluxo:
-
-1. `dry_run=true`: valida estrutura, linhas, datas, categorias, tipos e valores sem gravar no banco.
-2. `dry_run=false`: exige que os dados passem pela validação e confirma a gravação atômica em SQLite.
-3. Duplicatas dentro do arquivo ou já existentes no banco são sinalizadas no preview e não entram por padrão.
-4. Se `include_duplicates=true`, o usuário assume a responsabilidade de incluir deliberadamente registros potencialmente duplicados.
-
-### Política de duplicatas
-
-A duplicata é detectada por uma assinatura gerada a partir de:
-
-- `date`
-- `description` (normalizado para minúsculas)
-- `category`
-- `type`
-- `amount` (arredondado para duas casas decimais)
-
-Essa política evita gravações acidentalmente repetidas, mas reconhece que duas transações legítimas podem coincidir em todos esses campos.
-
-### Arquivos relevantes desta etapa
-
-- `app/backend/services/csv_import.R` — parsing, normalização, validação e detecção de duplicatas.
-- `app/backend/services/data_access.R` — camada de acesso ao SQLite e operações CRUD.
-- `app/backend/api/plumber.R` — endpoint de importação e dashboard API.
-- `app/frontend/index.html` — área de upload do dashboard.
-- `app/frontend/js/app.js` — estados de loading, erro, preview e confirmação.
-- `tests/import/test_csv_import.R` — testes de validação e persistência em SQLite temporário.
-
-### Como validar a importação
+Os testes abaixo foram executados com sucesso no ambiente atual:
 
 ```bash
-cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript tests/finance/test_finance_analysis.R && Rscript tests/import/test_csv_import.R
 cd "/home/joao/Documentos/projetos em R" && Rscript tests/db/test_sqlite_persistence.R && Rscript tests/api/test_plumber_api.R
-node --check app/frontend/js/api.js
-node --check app/frontend/js/app.js
 ```
 
-### Resultado da auditoria final
+Evidência observada:
 
-- `Rscript tests/finance/test_finance_analysis.R` → aprovado
-- `Rscript tests/db/test_sqlite_persistence.R` → aprovado
-- `Rscript tests/api/test_plumber_api.R` → aprovado
-- `Rscript tests/import/test_csv_import.R` → aprovado
-- `node --check app/frontend/js/api.js` → aprovado
-- `node --check app/frontend/js/app.js` → aprovado
+- `Todos os testes de persistência com SQLite passaram.`
+- `Todos os testes da API do DataPulse passaram.`
 
-### Observações de integração
+## Regras de implementação
 
-- A API e o frontend foram validados em navegador em uma janela real com `http://127.0.0.1:8001`.
-- A importação válida passou pelos estados de preview e confirmação sem gravar antes da confirmação.
-- O backend foi reiniciado com banco SQLite temporário e os dados persistiram corretamente.
-- O problema de CORS e o problema de `multipart/form-data` foram corrigidos no endpoint `POST /api/import/csv`.
+- A lógica financeira permanece no backend em R.
+- O frontend apenas consulta e renderiza respostas da API.
+- O SQLite é a fonte primária de persistência para transações.
+- Validações e erros HTTP retornam status úteis para client e testes.
 
-Para testar a API via Plumber, execute o backend localmente e envie o CSV em multipart/form-data com o campo `file`.
+## Considerações finais
+
+A etapa de persistência com SQLite e CRUD foi concluída sem remover o comportamento da análise financeira já validada. O projeto segue em uma arquitetura incremental, com o backend em R funcionando como núcleo de negócio e a interface como camada de apresentação.
