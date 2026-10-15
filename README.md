@@ -117,13 +117,13 @@ As receitas e despesas usam a mesma representação: o valor é sempre positivo 
 2. Execute o script de exemplo:
 
 ```bash
-cd "/home/joao/Documentos/projetos em R" && Rscript app/scripts/run_analysis.R
+cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript app/scripts/run_analysis.R
 ```
 
 3. Para validar o módulo automaticamente, execute:
 
 ```bash
-cd "/home/joao/Documentos/projetos em R" && Rscript tests/finance/test_finance_analysis.R
+cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript tests/finance/test_finance_analysis.R
 ```
 
 ### Arquivos relevantes desta etapa
@@ -139,3 +139,71 @@ cd "/home/joao/Documentos/projetos em R" && Rscript tests/finance/test_finance_a
 - Não há persistência em banco nem API nesta etapa.
 - Dados inválidos são rejeitados com mensagens claras.
 - O projeto evita dependências externas e usa apenas base R.
+
+## Etapa 6B: Importação, validação e persistência de CSV
+
+A camada de importação implementa a leitura de arquivos CSV em formato canônico `date,description,category,type,amount` e permite a normalização de cabeçalhos/valores em português para o padrão interno. O parser aceita `,` e `;`, BOM UTF-8, datas em `YYYY-MM-DD`, `DD/MM/AAAA`, `DD-MM-AAAA` e valores com separadores decimal em `.` e `,`.
+
+### Contrato de importação
+
+Endpoint:
+
+- `POST /api/import/csv`
+- campo multipart: `file`
+- parâmetro opcional `dry_run=true|false`
+- parâmetro opcional `include_duplicates=true|false`
+
+Fluxo:
+
+1. `dry_run=true`: valida estrutura, linhas, datas, categorias, tipos e valores sem gravar no banco.
+2. `dry_run=false`: exige que os dados passem pela validação e confirma a gravação atômica em SQLite.
+3. Duplicatas dentro do arquivo ou já existentes no banco são sinalizadas no preview e não entram por padrão.
+4. Se `include_duplicates=true`, o usuário assume a responsabilidade de incluir deliberadamente registros potencialmente duplicados.
+
+### Política de duplicatas
+
+A duplicata é detectada por uma assinatura gerada a partir de:
+
+- `date`
+- `description` (normalizado para minúsculas)
+- `category`
+- `type`
+- `amount` (arredondado para duas casas decimais)
+
+Essa política evita gravações acidentalmente repetidas, mas reconhece que duas transações legítimas podem coincidir em todos esses campos.
+
+### Arquivos relevantes desta etapa
+
+- `app/backend/services/csv_import.R` — parsing, normalização, validação e detecção de duplicatas.
+- `app/backend/services/data_access.R` — camada de acesso ao SQLite e operações CRUD.
+- `app/backend/api/plumber.R` — endpoint de importação e dashboard API.
+- `app/frontend/index.html` — área de upload do dashboard.
+- `app/frontend/js/app.js` — estados de loading, erro, preview e confirmação.
+- `tests/import/test_csv_import.R` — testes de validação e persistência em SQLite temporário.
+
+### Como validar a importação
+
+```bash
+cd "/home/joao/Documentos/projetos em R.worktrees/csv-import-validation-persistence" && Rscript tests/finance/test_finance_analysis.R && Rscript tests/import/test_csv_import.R
+cd "/home/joao/Documentos/projetos em R" && Rscript tests/db/test_sqlite_persistence.R && Rscript tests/api/test_plumber_api.R
+node --check app/frontend/js/api.js
+node --check app/frontend/js/app.js
+```
+
+### Resultado da auditoria final
+
+- `Rscript tests/finance/test_finance_analysis.R` → aprovado
+- `Rscript tests/db/test_sqlite_persistence.R` → aprovado
+- `Rscript tests/api/test_plumber_api.R` → aprovado
+- `Rscript tests/import/test_csv_import.R` → aprovado
+- `node --check app/frontend/js/api.js` → aprovado
+- `node --check app/frontend/js/app.js` → aprovado
+
+### Observações de integração
+
+- A API e o frontend foram validados em navegador em uma janela real com `http://127.0.0.1:8001`.
+- A importação válida passou pelos estados de preview e confirmação sem gravar antes da confirmação.
+- O backend foi reiniciado com banco SQLite temporário e os dados persistiram corretamente.
+- O problema de CORS e o problema de `multipart/form-data` foram corrigidos no endpoint `POST /api/import/csv`.
+
+Para testar a API via Plumber, execute o backend localmente e envie o CSV em multipart/form-data com o campo `file`.
